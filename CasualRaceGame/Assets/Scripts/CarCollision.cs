@@ -9,8 +9,13 @@ public class CarCollision : MonoBehaviour
     [SerializeField] private RespawnManager _respawnManager;
 
     [Header("衝突設定")]
+    [Tooltip("衝突時の基本吹っ飛ばし力")]
     [SerializeField] private float _pushForce = 15f;
+    [Tooltip("衝突時の最低吹っ飛ばし力")]
+    [SerializeField] private float _minPushForce = 5f;  // 最低吹っ飛ばし力
+    [Header("衝突管理")]
     [SerializeField] private float _lastAttackerDuration = 3f; // 最終衝突者の有効時間
+    [Tooltip("連続衝突防止のクールダウン時間")]
     [SerializeField] private float _collisionCooldown = 0.1f; // 連続衝突防止のクールダウン時間
 
     private Rigidbody _rb;
@@ -33,91 +38,82 @@ public class CarCollision : MonoBehaviour
     {
         UpdateLastAttackerTimer();
     }
-
-    void OnCollisionEnter(Collision collision)
+    private void OnCollisionEnter(Collision collision)
     {
         if (collision.gameObject.CompareTag("Car"))
         {
             GameObject other = collision.gameObject;
             Rigidbody otherRb = other.GetComponent<Rigidbody>();
 
-            // 無敵チェック
             if (_respawnManager.IsInvincible(other)) return;
+            if (_respawnManager.IsInvincible(gameObject)) return;
+            if (Time.time - _lastCollisionTime < _collisionCooldown) return;
 
-            // クールダウンチェック
-            if (Time.time - _lastCollisionTime < _collisionCooldown)
-            {
-                return;
-            }
+            // Unityが提供する衝突時の相対速度を使う
+            float impactSpeed = (_rb.linearVelocity - otherRb.linearVelocity).magnitude;
+            Debug.Log($"[衝突] {gameObject.name} impactSpeed: {impactSpeed:F2}");
 
-            // 相対速度で判定
-            Vector3 relativeVelocity = _rb.linearVelocity - otherRb.linearVelocity;
-            Vector3 collisionDirection = (other.transform.position - transform.position).normalized;
-            float approachSpeed = Vector3.Dot(relativeVelocity, collisionDirection);
+            // 衝撃が弱すぎたら無視
+            if (impactSpeed < 1f) return;
 
-            // 自分が近づいてない（離れてる or 相手が近づいてる）なら処理しない
-            if (approachSpeed <= 0)
-            {
-                return;
-            }
+            // 速度が高い方だけが処理する（二重処理防止）
+            float mySpeed = _rb.linearVelocity.magnitude;
+            float otherSpeed = otherRb.linearVelocity.magnitude;
+            if (mySpeed < otherSpeed - 0.1f) return;
+            if (Mathf.Abs(mySpeed - otherSpeed) <= 0.1f && gameObject.GetInstanceID() < other.GetInstanceID()) return;
 
             _lastCollisionTime = Time.time;
 
-            // 衝突点を取得
-            Vector3 collisionPoint = collision.contacts[0].point;
+            CarCollision otherCollision = other.GetComponent<CarCollision>();
+            if (otherCollision != null) otherCollision.SetCollisionCooldown();
 
-            // 相手が吹っ飛ぶ方向：衝突点から相手の中心へ
-            Vector3 pushDirection = (other.transform.position - collisionPoint).normalized;
+            // 吹っ飛ばし方向：自分から相手への方向
+            Vector3 pushDirection = (other.transform.position - transform.position).normalized;
+            Vector3 flatPushDirection = new Vector3(pushDirection.x, 0, pushDirection.z).normalized;
 
-            // 相手を吹っ飛ばす
-            ApplyPushToOther(other, pushDirection);
-
-            // 自分も吹っ飛ぶ
-            ApplyPushToSelf(other);
-
-            // 衝突記録
+            ApplyPushToOther(other, impactSpeed);
+            ApplyPushToSelf(other, impactSpeed);
             RecordCollision(other);
         }
     }
 
     /// <summary>
-    /// 相手を吹っ飛ばす
+    /// 外部からクールダウンを設定（相手側から呼ばれる）
     /// </summary>
-    private void ApplyPushToOther(GameObject other, Vector3 pushDirection)
+    public void SetCollisionCooldown()
     {
-        Rigidbody otherRb = other.GetComponent<Rigidbody>();
-
-        // 速度加算
-        otherRb.linearVelocity += pushDirection * _pushForce;
-
-        // 向き変更（Y軸のみ）
-        Vector3 flatPushDirection = new Vector3(pushDirection.x, 0, pushDirection.z).normalized;
-        other.transform.rotation = Quaternion.LookRotation(flatPushDirection);
+        _lastCollisionTime = Time.time;
     }
 
-    /// <summary>
-    /// 自分も吹っ飛ぶ
-    /// </summary>
-    private void ApplyPushToSelf(GameObject other)
+    private void ApplyPushToOther(GameObject other, float impactSpeed)
+    {
+        Vector3 myDirection = _rb.linearVelocity.normalized;
+        Vector3 flatDirection = new Vector3(myDirection.x, 0, myDirection.z).normalized;
+
+        if (flatDirection.sqrMagnitude < 0.01f) return;
+
+        float pushPower = Mathf.Max(impactSpeed * _pushForce, _minPushForce);
+
+        other.transform.rotation = Quaternion.LookRotation(flatDirection);
+
+        CarBase otherCar = other.GetComponent<CarBase>();
+        if (otherCar != null) otherCar.AddExternalVelocity(flatDirection * pushPower);
+    }
+
+    private void ApplyPushToSelf(GameObject other, float impactSpeed)
     {
         Rigidbody otherRb = other.GetComponent<Rigidbody>();
-        float otherSpeed = otherRb.linearVelocity.magnitude;
-
-        // 前方向に加速（相手の速度の0.2倍）
-        _rb.linearVelocity += transform.forward * (otherSpeed * 0.2f);
-
-        // 相手が停止中なら向き変更しない
-        if (otherSpeed < 0.1f)
-        {
-            return;
-        }
-
-        // 向き変更：相手の進行方向（速度ベクトル）を向く
         Vector3 otherDirection = otherRb.linearVelocity.normalized;
+        Vector3 flatDirection = new Vector3(otherDirection.x, 0, otherDirection.z).normalized;
 
-        // Y軸回転のみ
-        Vector3 flatOtherDirection = new Vector3(otherDirection.x, 0, otherDirection.z).normalized;
-        transform.rotation = Quaternion.LookRotation(flatOtherDirection);
+        if (flatDirection.sqrMagnitude < 0.01f) return;
+
+        float bouncePower = Mathf.Max(impactSpeed * _pushForce * 0.3f, _minPushForce * 0.3f);
+
+        transform.rotation = Quaternion.LookRotation(flatDirection);
+
+        CarBase selfCar = GetComponent<CarBase>();
+        if (selfCar != null) selfCar.AddExternalVelocity(flatDirection * bouncePower);
     }
 
     private void RecordCollision(GameObject victim)

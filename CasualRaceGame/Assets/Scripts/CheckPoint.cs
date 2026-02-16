@@ -14,8 +14,6 @@ public class Checkpoint : MonoBehaviour
         {
             // イベント発行
             GameEvents.OnCheckpointPassed.OnNext((other.gameObject, _checkpointIndex));
-
-            Debug.Log($"{other.name} が Checkpoint {_checkpointIndex} を通過");
         }
     }
 }
