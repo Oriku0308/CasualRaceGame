@@ -4,24 +4,17 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-/// <summary>
-/// スコア管理
-/// 各車の5項目のスコアを記録・集計する
-/// </summary>
 public class ScoreManager : MonoBehaviour
 {
-    /// <summary>
-    /// 各車のスコアデータ
-    /// </summary>
     [Serializable]
     public class CarScoreData
     {
         public GameObject Car;
-        public int CollisionCount;      // 衝突回数
-        public int FellCount;           // 落下回数
-        public int KnockOffCount;       // 落下させた回数
-        public int GoalRank;            // ゴール順位（0=未ゴール）
-        public float FirstPlaceTime;    // 1位維持時間
+        public int CollisionCount;
+        public int FellCount;
+        public int KnockOffCount;
+        public int GoalRank;
+        public float FirstPlaceTime;
 
         public CarScoreData(GameObject car)
         {
@@ -29,17 +22,17 @@ public class ScoreManager : MonoBehaviour
         }
     }
 
-    // 全車のスコアデータ
     private Dictionary<GameObject, CarScoreData> _scoreDataMap = new Dictionary<GameObject, CarScoreData>();
-
     private CompositeDisposable _disposables = new CompositeDisposable();
+
+    // 1位維持時間の計測用
+    private GameObject _currentFirstPlace = null;
+    private bool _raceActive = false;
 
     void Start()
     {
-        // シーン内の全車を登録
         RegisterAllCars();
 
-        // イベント購読
         GameEvents.OnCarFell
             .Subscribe(car => OnCarFellHandler(car))
             .AddTo(_disposables);
@@ -48,9 +41,26 @@ public class ScoreManager : MonoBehaviour
             .Subscribe(data => OnCarCollisionHandler(data.attacker, data.victim))
             .AddTo(_disposables);
 
-        // TODO: RaceManager実装時に追加
-        // GameEvents.OnCarGoaled.Subscribe(...)
-        // 1位維持時間の計測
+        GameEvents.OnCarGoaled
+            .Subscribe(car => OnCarGoaledHandler(car))
+            .AddTo(_disposables);
+
+        GameEvents.OnFirstPlaceChanged
+            .Subscribe(car => OnFirstPlaceChangedHandler(car))
+            .AddTo(_disposables);
+
+        GameEvents.OnRaceStarted
+            .Subscribe(_ => _raceActive = true)
+            .AddTo(_disposables);
+
+        GameEvents.OnRaceEnded
+            .Subscribe(_ => _raceActive = false)
+            .AddTo(_disposables);
+    }
+
+    void Update()
+    {
+        UpdateFirstPlaceTime();
     }
 
     void OnDestroy()
@@ -58,39 +68,30 @@ public class ScoreManager : MonoBehaviour
         _disposables.Dispose();
     }
 
-    /// <summary>
-    /// シーン内の"Car"タグを持つ全オブジェクトを登録
-    /// </summary>
     private void RegisterAllCars()
     {
         GameObject[] cars = GameObject.FindGameObjectsWithTag("Car");
-
         foreach (var car in cars)
         {
             _scoreDataMap[car] = new CarScoreData(car);
         }
-
         Debug.Log($"[ScoreManager] {_scoreDataMap.Count}台の車を登録");
     }
 
     // イベントハンドラ
+
     private void OnCarCollisionHandler(GameObject attacker, GameObject victim)
     {
         if (!_scoreDataMap.ContainsKey(attacker)) return;
-
         _scoreDataMap[attacker].CollisionCount++;
-
-        Debug.Log($"[ScoreManager] {attacker.name} の衝突回数: {_scoreDataMap[attacker].CollisionCount}");
     }
 
     private void OnCarFellHandler(GameObject car)
     {
         if (!_scoreDataMap.ContainsKey(car)) return;
 
-        // 落下回数を記録
         _scoreDataMap[car].FellCount++;
 
-        // 落下させた判定（最終衝突者チェック）
         CarCollision carCollision = car.GetComponent<CarCollision>();
         if (carCollision != null)
         {
@@ -98,40 +99,57 @@ public class ScoreManager : MonoBehaviour
             if (attacker != null && _scoreDataMap.ContainsKey(attacker))
             {
                 _scoreDataMap[attacker].KnockOffCount++;
-                Debug.Log($"[ScoreManager] {attacker.name} が {car.name} を落下させた！ (計{_scoreDataMap[attacker].KnockOffCount}回)");
             }
         }
-
-        Debug.Log($"[ScoreManager] {car.name} の落下回数: {_scoreDataMap[car].FellCount}");
     }
 
-    // スコア取得（UI・結果画面用）
+    private void OnCarGoaledHandler(GameObject car)
+    {
+        if (!_scoreDataMap.ContainsKey(car)) return;
 
-    /// <summary>
-    /// 指定した車のスコアデータを取得
-    /// </summary>
+        // RaceManagerのGoalOrderを取得
+        RaceManager raceManager = GetComponent<RaceManager>();
+        if (raceManager != null)
+        {
+            var progress = raceManager.GetProgress(car);
+            if (progress != null)
+            {
+                _scoreDataMap[car].GoalRank = progress.GoalOrder;
+            }
+        }
+    }
+
+    private void OnFirstPlaceChangedHandler(GameObject car)
+    {
+        _currentFirstPlace = car;
+    }
+
+    // 1位維持時間
+    private void UpdateFirstPlaceTime()
+    {
+        if (!_raceActive) return;
+        if (_currentFirstPlace == null) return;
+        if (!_scoreDataMap.ContainsKey(_currentFirstPlace)) return;
+
+        _scoreDataMap[_currentFirstPlace].FirstPlaceTime += Time.deltaTime;
+    }
+
+    // スコア取得
     public CarScoreData GetScoreData(GameObject car)
     {
         return _scoreDataMap.ContainsKey(car) ? _scoreDataMap[car] : null;
     }
 
-    /// <summary>
-    /// 全車のスコアデータを取得
-    /// </summary>
     public Dictionary<GameObject, CarScoreData> GetAllScoreData()
     {
         return _scoreDataMap;
     }
 
-    // TODO: ポイント計算（現在は仮実装）
+    // ポイント計算
 
-    /// <summary>
-    /// 各項目の1位を判定し、総合ポイントを計算
-    /// </summary>
     public Dictionary<GameObject, int> CalculateFinalPoints()
     {
         var points = new Dictionary<GameObject, int>();
-
         foreach (var car in _scoreDataMap.Keys)
         {
             points[car] = 0;
@@ -146,27 +164,52 @@ public class ScoreManager : MonoBehaviour
         // 落下回数1位
         AwardPointToTopScorers(points, data => data.FellCount);
 
-        // TODO: ゴール順位1位（GoalRank == 1）
-        // TODO: 1位維持時間1位
+        // ゴール順位1位
+        AwardGoalPointToFirst(points);
+
+        // 1位維持時間1位
+        AwardPointToTopFloat(points, data => data.FirstPlaceTime);
 
         return points;
     }
 
-    /// <summary>
-    /// 指定項目の最大値を持つ車にポイントを付与（同率対応）
-    /// </summary>
     private void AwardPointToTopScorers(Dictionary<GameObject, int> points, Func<CarScoreData, int> selector)
     {
         if (_scoreDataMap.Count == 0) return;
 
         int maxValue = _scoreDataMap.Values.Max(selector);
-
-        // 全員0なら誰にもポイントなし
         if (maxValue <= 0) return;
 
         foreach (var kvp in _scoreDataMap)
         {
             if (selector(kvp.Value) == maxValue)
+            {
+                points[kvp.Key]++;
+            }
+        }
+    }
+
+    private void AwardPointToTopFloat(Dictionary<GameObject, int> points, Func<CarScoreData, float> selector)
+    {
+        if (_scoreDataMap.Count == 0) return;
+
+        float maxValue = _scoreDataMap.Values.Max(selector);
+        if (maxValue <= 0f) return;
+
+        foreach (var kvp in _scoreDataMap)
+        {
+            if (Mathf.Approximately(selector(kvp.Value), maxValue))
+            {
+                points[kvp.Key]++;
+            }
+        }
+    }
+
+    private void AwardGoalPointToFirst(Dictionary<GameObject, int> points)
+    {
+        foreach (var kvp in _scoreDataMap)
+        {
+            if (kvp.Value.GoalRank == 1)
             {
                 points[kvp.Key]++;
             }

@@ -6,8 +6,6 @@
 public class AIController : CarBase
 {
     [Header("AI設定")]
-    [Tooltip("チェックポイント到達とみなす距離")]
-    [SerializeField] private float _arrivalDistance = 5f;
     [Tooltip("ターン開始とみなす角度")]
     [SerializeField] private float _brakeAngle = 90f;
     [Header("個性設定")]

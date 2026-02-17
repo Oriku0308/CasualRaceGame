@@ -19,12 +19,14 @@ public class RaceManager : MonoBehaviour
     private Dictionary<GameObject, CarProgress> _progressMap = new Dictionary<GameObject, CarProgress>();
     private List<GameObject> _rankings = new List<GameObject>();
     private List<GameObject> _allCars = new List<GameObject>();
+    private GameObject _currentFirstPlace = null;
 
     private int _countdownValue = 0; // 現在のカウントダウン値（0=カウントダウン終了）
     private float _raceEndTimer = 0f;
     private int _goalCount = 0;
     private bool _raceStarted = false;
     private bool _raceEnded = false;
+
 
 
     public class CarProgress
@@ -196,6 +198,13 @@ public class RaceManager : MonoBehaviour
             .OrderByDescending(kvp => GetSortScore(kvp.Key, kvp.Value))
             .Select(kvp => kvp.Key)
             .ToList();
+
+        // 1位が変わったら通知
+        if (_rankings.Count > 0 && _rankings[0] != _currentFirstPlace)
+        {
+            _currentFirstPlace = _rankings[0];
+            GameEvents.OnFirstPlaceChanged.OnNext(_currentFirstPlace);
+        }
     }
 
     private float GetSortScore(GameObject car, CarProgress progress)

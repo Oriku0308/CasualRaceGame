@@ -7,6 +7,11 @@ using UniRx;
 public static class GameEvents
 {
     /// <summary>
+    /// 1位が変わったときのイベント
+    /// </summary>
+    public static Subject<GameObject> OnFirstPlaceChanged = new Subject<GameObject>();
+
+    /// <summary>
     /// 車が落下したときのイベント
     /// </summary>
     public static Subject<GameObject> OnCarFell = new Subject<GameObject>();

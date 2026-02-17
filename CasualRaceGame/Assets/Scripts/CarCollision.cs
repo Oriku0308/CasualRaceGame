@@ -38,6 +38,7 @@ public class CarCollision : MonoBehaviour
     {
         UpdateLastAttackerTimer();
     }
+
     private void OnCollisionEnter(Collision collision)
     {
         if (collision.gameObject.CompareTag("Car"))
@@ -49,9 +50,8 @@ public class CarCollision : MonoBehaviour
             if (_respawnManager.IsInvincible(gameObject)) return;
             if (Time.time - _lastCollisionTime < _collisionCooldown) return;
 
-            // Unityが提供する衝突時の相対速度を使う
+            // 衝撃の強さを計算（相対速度の大きさ）
             float impactSpeed = (_rb.linearVelocity - otherRb.linearVelocity).magnitude;
-            Debug.Log($"[衝突] {gameObject.name} impactSpeed: {impactSpeed:F2}");
 
             // 衝撃が弱すぎたら無視
             if (impactSpeed < 1f) return;
@@ -60,7 +60,7 @@ public class CarCollision : MonoBehaviour
             float mySpeed = _rb.linearVelocity.magnitude;
             float otherSpeed = otherRb.linearVelocity.magnitude;
             if (mySpeed < otherSpeed - 0.1f) return;
-            if (Mathf.Abs(mySpeed - otherSpeed) <= 0.1f && gameObject.GetInstanceID() < other.GetInstanceID()) return;
+            if (Mathf.Abs(mySpeed - otherSpeed) <= 0.1f) return;
 
             _lastCollisionTime = Time.time;
 
@@ -78,7 +78,7 @@ public class CarCollision : MonoBehaviour
     }
 
     /// <summary>
-    /// 外部からクールダウンを設定（相手側から呼ばれる）
+    /// 外部からクールダウンを設定
     /// </summary>
     public void SetCollisionCooldown()
     {

@@ -11,6 +11,7 @@ public class HUDController : MonoBehaviour
     [SerializeField] private RaceManager _raceManager;
 
     [Header("UI—v‘f")]
+    [SerializeField] private GameObject _hudPanel;
     [SerializeField] private TextMeshProUGUI _rankText;
     [SerializeField] private TextMeshProUGUI _speedText;
     [SerializeField] private TextMeshProUGUI _boostText;
@@ -30,7 +31,13 @@ public class HUDController : MonoBehaviour
         UpdateCountdown();
         UpdateRaceEndTimer();
 
-        if (_raceManager.IsRaceStarted() && !_raceManager.IsRaceEnded())
+        if (_raceManager.IsRaceEnded())
+        {
+            _hudPanel.SetActive(false);
+            return;
+        }
+
+        if (_raceManager.IsRaceStarted())
         {
             UpdateRank();
             UpdateSpeed();
